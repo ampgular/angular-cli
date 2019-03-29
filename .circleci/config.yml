@@ -12,9 +12,11 @@
 ## IMPORTANT
 # If you change the `docker_image` version, also change the `cache_key` suffix and the version of
 # `com_github_bazelbuild_buildtools` in the `/WORKSPACE` file.
-var_1: &docker_image angular/ngcontainer:0.7.0
-var_2: &cache_key angular_devkit-{{ checksum "yarn.lock" }}-0.7.0
-var_3: &node_8_docker_image angular/ngcontainer:0.3.3
+# If you change the cache key prefix, also sync the restore_cache fallback to match.
+# Keep the static part of the cache key as prefix to enable correct fallbacks.
+# See https://circleci.com/docs/2.0/caching/#restoring-cache for how prefixes work in CircleCI.
+var_1: &docker_image angular/ngcontainer:0.10.0
+var_2: &cache_key angular_devkit-0.10.0-{{ checksum "yarn.lock" }}
 
 # Settings common to each job
 anchor_1: &defaults
@@ -22,13 +24,26 @@ anchor_1: &defaults
   docker:
     - image: *docker_image
 
-# After checkout, rebase on top of master.
-# Similar to travis behavior, but not quite the same.
-# See https://discuss.circleci.com/t/1662
+# After checkout, rebase on top of target branch.
 anchor_2: &post_checkout
-  post: git pull --ff-only origin "refs/pull/${CI_PULL_REQUEST//*pull\//}/merge"
-anchor_3: &root_package_lock_key
-  key: *cache_key
+  run:
+    name: Rebase PR on target branch
+    command: >
+      if [[ -n "${CIRCLE_PR_NUMBER}" ]]; then
+        # User is required for rebase.
+        git config user.name "angular-ci"	
+        git config user.email "angular-ci"      
+        # Rebase PR on top of target branch.
+        node tools/rebase-pr.js angular/angular-cli ${CIRCLE_PR_NUMBER}
+      else
+        echo "This build is not over a PR, nothing to do."
+      fi
+anchor_3: &restore_cache
+  restore_cache:
+    keys:
+      - *cache_key
+      # This fallback should be the cache_key without variables.
+      - angular_devkit-0.7.0-
 anchor_4: &attach_options
   at: .
 
@@ -38,15 +53,16 @@ jobs:
   install:
     <<: *defaults
     steps:
-      - checkout: *post_checkout
-      - restore_cache: *root_package_lock_key
+      - checkout
+      - *post_checkout
+      - *restore_cache
       - run: yarn install --frozen-lockfile
       - persist_to_workspace:
           root: .
           paths:
             - ./*
       - save_cache:
-          <<: *root_package_lock_key
+          key: *cache_key
           paths:
             - ~/.cache/yarn
 
@@ -90,20 +106,6 @@ jobs:
           path: /tmp/dist
           destination: cli/new-production
 
-  e2e-node-8:
-    <<: *defaults
-    # Overwrite docker image to node 8.
-    docker:
-      - image: *node_8_docker_image
-    environment:
-      BASH_ENV: ~/.profile
-    resource_class: xlarge
-    parallelism: 2
-    steps:
-      - attach_workspace: *attach_options
-      - run: npm install --global npm@6
-      - run: xvfb-run -a node ./tests/legacy-cli/run_e2e --glob=tests/basic/* --nb-shards=${CIRCLE_NODE_TOTAL} --shard=${CIRCLE_NODE_INDEX}
-
   e2e-cli-ng-snapshots:
     <<: *defaults
     environment:
@@ -111,8 +113,32 @@ jobs:
     resource_class: xlarge
     parallelism: 4
     steps:
+      - run:
+          name: Don't run expensive e2e tests for forks other than renovate-bot and angular
+          command: >
+            if [[ "$CIRCLE_PR_USERNAME" != "renovate-bot" ]] &&
+               [[ "$CIRCLE_PROJECT_USERNAME" != "angular" || $CIRCLE_BRANCH != "master" ]]; then
+              circleci step halt
+            fi
       - attach_workspace: *attach_options
       - run: xvfb-run -a node ./tests/legacy-cli/run_e2e --nb-shards=${CIRCLE_NODE_TOTAL} --shard=${CIRCLE_NODE_INDEX} --ng-snapshots
+
+  e2e-cli-ivy-snapshots:
+    <<: *defaults
+    environment:
+      BASH_ENV: ~/.profile
+    resource_class: xlarge
+    parallelism: 4
+    steps:
+      - run:
+          name: Don't run expensive e2e tests for forks other than renovate-bot and angular
+          command: >
+            if [[ "$CIRCLE_PR_USERNAME" != "renovate-bot" ]] &&
+               [[ "$CIRCLE_PROJECT_USERNAME" != "angular" || $CIRCLE_BRANCH != "master" ]]; then
+              circleci step halt
+            fi
+      - attach_workspace: *attach_options
+      - run: xvfb-run -a node ./tests/legacy-cli/run_e2e --nb-shards=${CIRCLE_NODE_TOTAL} --shard=${CIRCLE_NODE_INDEX} --ng-snapshots --ivy
 
   build:
     <<: *defaults
@@ -184,9 +210,6 @@ workflows:
       - e2e-cli:
           requires:
             - build
-      - e2e-node-8:
-          requires:
-            - build
       - snapshot_publish_docs:
           requires:
           - install
@@ -197,9 +220,9 @@ workflows:
       - e2e-cli-ng-snapshots:
           requires:
             - build
-          filters:
-            branches:
-              only: master
+      - e2e-cli-ivy-snapshots:
+          requires:
+            - build
       - snapshot_publish:
           requires:
             - test

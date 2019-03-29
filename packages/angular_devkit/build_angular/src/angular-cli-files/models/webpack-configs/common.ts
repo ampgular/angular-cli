@@ -5,15 +5,15 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
+import { tags } from '@angular-devkit/core';
 import * as CopyWebpackPlugin from 'copy-webpack-plugin';
 import * as path from 'path';
-import { HashedModuleIdsPlugin, debug } from 'webpack';
-import { AssetPatternObject } from '../../../browser/schema';
+import { Configuration, HashedModuleIdsPlugin, Output, debug } from 'webpack';
+import { AssetPatternClass } from '../../../browser/schema';
 import { BundleBudgetPlugin } from '../../plugins/bundle-budget';
 import { CleanCssWebpackPlugin } from '../../plugins/cleancss-webpack-plugin';
 import { ScriptsWebpackPlugin } from '../../plugins/scripts-webpack-plugin';
-import { findUp } from '../../utilities/find-up';
-import { isDirectory } from '../../utilities/is-directory';
+import { findAllNodeModules, findUp } from '../../utilities/find-up';
 import { requireProjectModule } from '../../utilities/require-project-module';
 import { BuildOptions, WebpackConfigOptions } from '../build-options';
 import { getOutputHashFormat, normalizeExtraEntryPoints } from './utils';
@@ -31,7 +31,7 @@ export const buildOptimizerLoader: string = g['_DevKitIsLocal']
   : '@angular-devkit/build-optimizer/webpack-loader';
 
 // tslint:disable-next-line:no-big-function
-export function getCommonConfig(wco: WebpackConfigOptions) {
+export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
   const { root, projectRoot, buildOptions } = wco;
   const { styles: stylesOptimization, scripts: scriptsOptimization } = buildOptions.optimization;
   const {
@@ -54,7 +54,7 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
   }
 
   if (buildOptions.es5BrowserSupport) {
-    entryPoints['es2015-polyfills'] = [path.join(__dirname, '..', 'es2015-polyfills.js')];
+    entryPoints['polyfills.es5'] = [path.join(__dirname, '..', 'es2015-polyfills.js')];
   }
 
   if (buildOptions.polyfills) {
@@ -68,14 +68,14 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
     ];
 
     if (buildOptions.es5BrowserSupport) {
-      entryPoints['es2015-polyfills'] = [
-        ...entryPoints['es2015-polyfills'],
+      entryPoints['polyfills.es5'] = [
+        ...entryPoints['polyfills.es5'],
         path.join(__dirname, '..', 'es2015-jit-polyfills.js'),
       ];
     }
   }
 
-  if (buildOptions.profile) {
+  if (buildOptions.profile || process.env['NG_BUILD_PROFILING']) {
     extraPlugins.push(new debug.ProfilingPlugin({
       outputPath: path.resolve(root, 'chrome-profiler-events.json'),
     }));
@@ -103,7 +103,7 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
           prev.push({
             bundleName,
             paths: [resolvedPath],
-            lazy: curr.lazy,
+            lazy: curr.lazy || false,
           });
         }
 
@@ -129,7 +129,7 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
 
   // process asset entries
   if (buildOptions.assets) {
-    const copyWebpackPluginPatterns = buildOptions.assets.map((asset: AssetPatternObject) => {
+    const copyWebpackPluginPatterns = buildOptions.assets.map((asset: AssetPatternClass) => {
 
       // Resolve input paths relative to workspace root and add slash at the end.
       asset.input = path.resolve(root, asset.input).replace(/\\/g, '/');
@@ -200,15 +200,8 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
   // Allow loaders to be in a node_modules nested inside the devkit/build-angular package.
   // This is important in case loaders do not get hoisted.
   // If this file moves to another location, alter potentialNodeModules as well.
-  const loaderNodeModules = ['node_modules'];
-  const buildAngularNodeModules = findUp('node_modules', __dirname);
-  if (buildAngularNodeModules
-    && isDirectory(buildAngularNodeModules)
-    && buildAngularNodeModules !== nodeModules
-    && buildAngularNodeModules.startsWith(nodeModules)
-  ) {
-    loaderNodeModules.push(buildAngularNodeModules);
-  }
+  const loaderNodeModules = findAllNodeModules(__dirname, projectRoot);
+  loaderNodeModules.unshift('node_modules');
 
   // Load rxjs path aliases.
   // https://github.com/ReactiveX/rxjs/blob/master/doc/lettable-operators.md#build-and-treeshaking
@@ -244,10 +237,11 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
       },
 
       // On server, we don't want to compress anything. We still set the ngDevMode = false for it
-      // to remove dev code.
+      // to remove dev code, and ngI18nClosureMode to remove Closure compiler i18n code
       compress: (buildOptions.platform == 'server' ? {
         global_defs: {
           ngDevMode: false,
+          ngI18nClosureMode: false,
         },
       } : {
           pure_getters: buildOptions.buildOptimizer,
@@ -256,6 +250,7 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
           passes: buildOptions.buildOptimizer ? 3 : 1,
           global_defs: {
             ngDevMode: false,
+            ngI18nClosureMode: false,
           },
         }),
       // We also want to avoid mangling on server.
@@ -272,11 +267,20 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
     );
   }
 
+  if (wco.tsConfig.options.target === 4) {
+    wco.logger.warn(tags.stripIndent`
+      WARNING: Zone.js does not support native async/await in ES2017.
+      These blocks are not intercepted by zone.js and will not triggering change detection.
+      See: https://github.com/angular/zone.js/pull/1140 for more information.
+    `);
+  }
+
   return {
     mode: scriptsOptimization || stylesOptimization
       ? 'production'
       : 'development',
     devtool: false,
+    profile: buildOptions.statsJson,
     resolve: {
       extensions: ['.ts', '.tsx', '.mjs', '.js'],
       symlinks: !buildOptions.preserveSymlinks,
@@ -292,10 +296,12 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
     context: projectRoot,
     entry: entryPoints,
     output: {
+      futureEmitAssets: true,
       path: path.resolve(root, buildOptions.outputPath as string),
       publicPath: buildOptions.deployUrl,
       filename: `[name]${hashFormat.chunk}.js`,
-    },
+      // cast required until typings include `futureEmitAssets` property
+    } as Output,
     watch: buildOptions.watch,
     watchOptions: {
       poll: buildOptions.poll,
@@ -305,7 +311,6 @@ export function getCommonConfig(wco: WebpackConfigOptions) {
     },
     module: {
       rules: [
-        { test: /\.html$/, loader: 'raw-loader' },
         {
           test: /\.(eot|svg|cur|jpg|png|webp|gif|otf|ttf|woff|woff2|ani)$/,
           loader: 'file-loader',

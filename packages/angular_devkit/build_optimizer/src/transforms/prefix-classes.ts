@@ -6,6 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 import * as ts from 'typescript';
+import { addPureComment } from '../helpers/ast-utils';
 
 /**
  * @deprecated From 0.9.0
@@ -29,7 +30,7 @@ export function testPrefixClasses(content: string) {
       exportVarSetter, multiLineComment,
       /\(/, multiLineComment,
       /\s*function \(_super\) {/, newLine,
-      /\w*\.?__extends\(\w+, _super\);/,
+      /\S*\.?__extends\(\S+, _super\);/,
     ],
   ].map(arr => new RegExp(arr.map(x => x.source).join(''), 'm'));
 
@@ -42,9 +43,6 @@ const extendsHelperName = '__extends';
 export function getPrefixClassesTransformer(): ts.TransformerFactory<ts.SourceFile> {
   return (context: ts.TransformationContext): ts.Transformer<ts.SourceFile> => {
     const transformer: ts.Transformer<ts.SourceFile> = (sf: ts.SourceFile) => {
-
-      const pureFunctionComment = '@__PURE__';
-
       const visitor: ts.Visitor = (node: ts.Node): ts.VisitResult<ts.Node> => {
 
         // Add pure comment to downleveled classes.
@@ -63,12 +61,7 @@ export function getPrefixClassesTransformer(): ts.TransformerFactory<ts.SourceFi
                   varDecl,
                   varDecl.name,
                   varDecl.type,
-                  ts.addSyntheticLeadingComment(
-                    varInitializer,
-                    ts.SyntaxKind.MultiLineCommentTrivia,
-                    pureFunctionComment,
-                    false,
-                  ),
+                  addPureComment(varInitializer),
                 ),
               ],
             ),

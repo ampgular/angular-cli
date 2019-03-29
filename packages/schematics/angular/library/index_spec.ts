@@ -25,7 +25,7 @@ describe('Library Schematic', () => {
   );
   const defaultOptions: GenerateLibrarySchema = {
     name: 'foo',
-    entryFile: 'my_index',
+    entryFile: 'my-index',
     skipPackageJson: false,
     skipTsConfig: false,
     skipInstall: false,
@@ -51,7 +51,7 @@ describe('Library Schematic', () => {
       '/projects/foo/README.md',
       '/projects/foo/tslint.json',
       '/projects/foo/src/test.ts',
-      '/projects/foo/src/my_index.ts',
+      '/projects/foo/src/my-index.ts',
       '/projects/foo/src/lib/foo.module.ts',
       '/projects/foo/src/lib/foo.component.spec.ts',
       '/projects/foo/src/lib/foo.component.ts',
@@ -89,7 +89,7 @@ describe('Library Schematic', () => {
     const tree = schematicRunner.runSchematic('library', defaultOptions, workspaceTree);
     const fileContent = getJsonFileContent(tree, '/projects/foo/ng-package.json');
     expect(fileContent.lib).toBeDefined();
-    expect(fileContent.lib.entryFile).toEqual('src/my_index.ts');
+    expect(fileContent.lib.entryFile).toEqual('src/my-index.ts');
     expect(fileContent.dest).toEqual('../../dist/foo');
   });
 
@@ -97,7 +97,7 @@ describe('Library Schematic', () => {
     const tree = schematicRunner.runSchematic('library', {
       name: 'foobar',
     }, workspaceTree);
-    expect(tree.files).toContain('/projects/foobar/src/public_api.ts');
+    expect(tree.files).toContain('/projects/foobar/src/public-api.ts');
   });
 
   it(`should add library to workspace`, () => {
@@ -121,6 +121,15 @@ describe('Library Schematic', () => {
 
     const workspace = JSON.parse(tree.readContent('/angular.json'));
     expect(workspace.projects.foo.prefix).toEqual('pre');
+  });
+
+  it('should set the right prefix in the tslint file when provided is kebabed', () => {
+    const options: GenerateLibrarySchema = { ...defaultOptions, prefix: 'foo-bar' };
+    const tree = schematicRunner.runSchematic('library', options, workspaceTree);
+    const path = '/projects/foo/tslint.json';
+    const content = JSON.parse(tree.readContent(path));
+    expect(content.rules['directive-selector'][2]).toMatch('fooBar');
+    expect(content.rules['component-selector'][2]).toMatch('foo-bar');
   });
 
   it('should handle a pascalCasedName', () => {
@@ -154,7 +163,7 @@ describe('Library Schematic', () => {
       const tree = schematicRunner.runSchematic('library', defaultOptions, workspaceTree);
 
       const packageJson = getJsonFileContent(tree, 'package.json');
-      expect(packageJson.devDependencies['ng-packagr']).toEqual('^4.2.0');
+      expect(packageJson.devDependencies['ng-packagr']).toEqual('^5.0.0');
       expect(packageJson.devDependencies['@angular-devkit/build-ng-packagr'])
         .toEqual(latestVersions.DevkitBuildNgPackagr);
     });

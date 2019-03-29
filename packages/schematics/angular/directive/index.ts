@@ -12,7 +12,6 @@ import {
   Tree,
   apply,
   applyTemplates,
-  branchAndMerge,
   chain,
   filter,
   mergeWith,
@@ -20,7 +19,7 @@ import {
   noop,
   url,
 } from '@angular-devkit/schematics';
-import * as ts from 'typescript';
+import * as ts from '../third_party/github.com/Microsoft/TypeScript/lib/typescript';
 import { addDeclarationToModule, addExportToModule } from '../utility/ast-utils';
 import { InsertChange } from '../utility/change';
 import { buildRelativePath, findModuleFromOptions } from '../utility/find-module';
@@ -135,10 +134,8 @@ export default function (options: DirectiveOptions): Rule {
     ]);
 
     return chain([
-      branchAndMerge(chain([
-        addDeclarationToNgModule(options),
-        mergeWith(templateSource),
-      ])),
+      addDeclarationToNgModule(options),
+      mergeWith(templateSource),
       options.lintFix ? applyLintFix(options.path) : noop(),
     ]);
   };

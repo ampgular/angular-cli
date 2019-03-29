@@ -13,9 +13,9 @@ import {
   Tree,
   apply,
   applyTemplates,
-  branchAndMerge,
   chain,
   mergeWith,
+  move,
   noop,
   schematic,
   url,
@@ -103,20 +103,15 @@ function addDependenciesToPackageJson() {
       {
         type: NodeDependencyType.Dev,
         name: '@angular-devkit/build-angular',
-        version: latestVersions.DevkitBuildNgPackagr,
+        version: latestVersions.DevkitBuildAngular,
       },
       {
         type: NodeDependencyType.Dev,
         name: 'ng-packagr',
-        version: '^4.2.0',
+        version: '^5.0.0',
       },
       {
-        type: NodeDependencyType.Dev,
-        name: 'tsickle',
-        version: '>=0.34.0',
-      },
-      {
-        type: NodeDependencyType.Dev,
+        type: NodeDependencyType.Default,
         name: 'tslib',
         version: latestVersions.TsLib,
       },
@@ -193,7 +188,7 @@ export default function (options: LibraryOptions): Rule {
     }
 
     const workspace = getWorkspace(host);
-    const newProjectRoot = workspace.newProjectRoot;
+    const newProjectRoot = workspace.newProjectRoot || '';
 
     const scopeFolder = scopeName ? strings.dasherize(scopeName) + '/' : '';
     const folderName = `${scopeFolder}${strings.dasherize(options.name)}`;
@@ -215,13 +210,11 @@ export default function (options: LibraryOptions): Rule {
         angularLatestVersion: latestVersions.Angular.replace('~', '').replace('^', ''),
         folderName,
       }),
-      // TODO: Moving inside `branchAndMerge` should work but is bugged right now.
-      // The __projectRoot__ is being used meanwhile.
-      // move(projectRoot),
+      move(projectRoot),
     ]);
 
     return chain([
-      branchAndMerge(mergeWith(templateSource)),
+      mergeWith(templateSource),
       addAppToWorkspaceFile(options, workspace, projectRoot, projectName),
       options.skipPackageJson ? noop() : addDependenciesToPackageJson(),
       options.skipTsConfig ? noop() : updateTsConfig(packageName, distRoot),

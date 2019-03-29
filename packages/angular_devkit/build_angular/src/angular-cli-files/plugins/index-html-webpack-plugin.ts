@@ -154,7 +154,6 @@ export class IndexHtmlWebpackPlugin {
       let scriptElements = '';
       for (const script of scripts) {
         const attrs: { name: string, value: string | null }[] = [
-          { name: 'type', value: 'text/javascript' },
           { name: 'src', value: (this._options.deployUrl || '') + script },
         ];
 
@@ -200,7 +199,7 @@ export class IndexHtmlWebpackPlugin {
 
           treeAdapter.appendChild(baseFragment, baseElement);
           indexSource.insert(
-            headElement.__location.startTag.endOffset + 1,
+            headElement.__location.startTag.endOffset,
             parse5.serialize(baseFragment, { treeAdapter }),
           );
         } else {

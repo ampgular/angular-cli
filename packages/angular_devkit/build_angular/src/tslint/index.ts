@@ -35,6 +35,10 @@ export interface TslintBuilderOptions {
   files: string[];
 }
 
+interface LintResult extends tslint.LintResult {
+  fileNames: string[];
+}
+
 export default class TslintBuilder implements Builder<TslintBuilderOptions> {
 
   constructor(public context: BuilderContext) { }
@@ -75,74 +79,78 @@ export default class TslintBuilder implements Builder<TslintBuilderOptions> {
       throw new Error('A "project" must be specified to enable type checking.');
     }
 
-    return from(this.loadTslint()).pipe(concatMap(projectTslint => new Observable(obs => {
-      const tslintConfigPath = options.tslintConfig
-        ? path.resolve(systemRoot, options.tslintConfig)
-        : null;
-      const Linter = projectTslint.Linter;
+    return from(this.loadTslint())
+      .pipe(concatMap(projectTslint => new Observable<BuildEvent>(obs => {
+        const tslintConfigPath = options.tslintConfig
+          ? path.resolve(systemRoot, options.tslintConfig)
+          : null;
+        const Linter = projectTslint.Linter;
 
-      let result: undefined | tslint.LintResult;
-      if (options.tsConfig) {
-        const tsConfigs = Array.isArray(options.tsConfig) ? options.tsConfig : [options.tsConfig];
+        let result: undefined | LintResult;
+        if (options.tsConfig) {
+          const tsConfigs = Array.isArray(options.tsConfig) ? options.tsConfig : [options.tsConfig];
+          const allPrograms =
+            tsConfigs.map(tsConfig => Linter.createProgram(path.resolve(systemRoot, tsConfig)));
 
-        for (const tsConfig of tsConfigs) {
-          const program = Linter.createProgram(path.resolve(systemRoot, tsConfig));
-          const partial = lint(projectTslint, systemRoot, tslintConfigPath, options, program);
-          if (result == undefined) {
-            result = partial;
-          } else {
-            result.failures = result.failures
-              .filter(curr => !partial.failures.some(prev => curr.equals(prev)))
-              .concat(partial.failures);
+          for (const program of allPrograms) {
+            const partial
+              = lint(projectTslint, systemRoot, tslintConfigPath, options, program, allPrograms);
+            if (result == undefined) {
+              result = partial;
+            } else {
+              result.failures = result.failures
+                .filter(curr => !partial.failures.some(prev => curr.equals(prev)))
+                .concat(partial.failures);
 
-            // we are not doing much with 'errorCount' and 'warningCount'
-            // apart from checking if they are greater than 0 thus no need to dedupe these.
-            result.errorCount += partial.errorCount;
-            result.warningCount += partial.warningCount;
+              // we are not doing much with 'errorCount' and 'warningCount'
+              // apart from checking if they are greater than 0 thus no need to dedupe these.
+              result.errorCount += partial.errorCount;
+              result.warningCount += partial.warningCount;
+              result.fileNames = [...new Set([...result.fileNames, ...partial.fileNames])];
 
-            if (partial.fixes) {
-              result.fixes = result.fixes ? result.fixes.concat(partial.fixes) : partial.fixes;
+              if (partial.fixes) {
+                result.fixes = result.fixes ? result.fixes.concat(partial.fixes) : partial.fixes;
+              }
             }
           }
+        } else {
+          result = lint(projectTslint, systemRoot, tslintConfigPath, options);
         }
-      } else {
-        result = lint(projectTslint, systemRoot, tslintConfigPath, options);
-      }
 
-      if (result == undefined) {
-        throw new Error('Invalid lint configuration. Nothing to lint.');
-      }
-
-      if (!options.silent) {
-        const Formatter = projectTslint.findFormatter(options.format);
-        if (!Formatter) {
-          throw new Error(`Invalid lint format "${options.format}".`);
+        if (result == undefined) {
+          throw new Error('Invalid lint configuration. Nothing to lint.');
         }
-        const formatter = new Formatter();
 
-        const output = formatter.format(result.failures, result.fixes);
-        if (output) {
-          this.context.logger.info(output);
+        if (!options.silent) {
+          const Formatter = projectTslint.findFormatter(options.format);
+          if (!Formatter) {
+            throw new Error(`Invalid lint format "${options.format}".`);
+          }
+          const formatter = new Formatter();
+
+          const output = formatter.format(result.failures, result.fixes, result.fileNames);
+          if (output) {
+            this.context.logger.info(output);
+          }
         }
-      }
 
-      if (result.warningCount > 0 && printInfo) {
-        this.context.logger.warn('Lint warnings found in the listed files.');
-      }
+        if (result.warningCount > 0 && printInfo) {
+          this.context.logger.warn('Lint warnings found in the listed files.');
+        }
 
-      if (result.errorCount > 0 && printInfo) {
-        this.context.logger.error('Lint errors found in the listed files.');
-      }
+        if (result.errorCount > 0 && printInfo) {
+          this.context.logger.error('Lint errors found in the listed files.');
+        }
 
-      if (result.warningCount === 0 && result.errorCount === 0 && printInfo) {
-        this.context.logger.info('All files pass linting.');
-      }
+        if (result.warningCount === 0 && result.errorCount === 0 && printInfo) {
+          this.context.logger.info('All files pass linting.');
+        }
 
-      const success = options.force || result.errorCount === 0;
-      obs.next({ success });
+        const success = options.force || result.errorCount === 0;
+        obs.next({ success });
 
-      return obs.complete();
-    })));
+        return obs.complete();
+      })));
   }
 }
 
@@ -152,7 +160,8 @@ function lint(
   tslintConfigPath: string | null,
   options: TslintBuilderOptions,
   program?: ts.Program,
-) {
+  allPrograms?: ts.Program[],
+): LintResult {
   const Linter = projectTslint.Linter;
   const Configuration = projectTslint.Configuration;
 
@@ -166,8 +175,23 @@ function lint(
 
   let lastDirectory;
   let configLoad;
+  const lintedFiles: string[] = [];
   for (const file of files) {
-    const contents = getFileContents(file, options, program);
+    let contents = '';
+    if (program && allPrograms) {
+      if (!program.getSourceFile(file)) {
+        if (!allPrograms.some(p => p.getSourceFile(file) !== undefined)) {
+          // File is not part of any typescript program
+          throw new Error(
+            `File '${file}' is not part of a TypeScript project '${options.tsConfig}'.`);
+        }
+
+        // if the Source file exists but it's not in the current program skip
+        continue;
+      }
+    } else {
+      contents = getFileContents(file);
+    }
 
     // Only check for a new tslint config if the path changes.
     const currentDirectory = path.dirname(file);
@@ -176,12 +200,16 @@ function lint(
       lastDirectory = currentDirectory;
     }
 
-    if (contents && configLoad) {
+    if (configLoad) {
       linter.lint(file, contents, configLoad.results);
+      lintedFiles.push(file);
     }
   }
 
-  return linter.getResult();
+  return {
+    ...linter.getResult(),
+    fileNames: lintedFiles,
+  };
 }
 
 function getFilesToLint(
@@ -217,22 +245,7 @@ function getFilesToLint(
   return programFiles;
 }
 
-function getFileContents(
-  file: string,
-  options: TslintBuilderOptions,
-  program?: ts.Program,
-): string | undefined {
-  // The linter retrieves the SourceFile TS node directly if a program is used
-  if (program) {
-    if (program.getSourceFile(file) == undefined) {
-      const message = `File '${file}' is not part of the TypeScript project '${options.tsConfig}'.`;
-      throw new Error(message);
-    }
-
-    // TODO: this return had to be commented out otherwise no file would be linted, figure out why.
-    // return undefined;
-  }
-
+function getFileContents(file: string): string {
   // NOTE: The tslint CLI checks for and excludes MPEG transport streams; this does not.
   try {
     return stripBom(readFileSync(file, 'utf-8'));

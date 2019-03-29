@@ -1,55 +1,32 @@
 workspace(name = "angular_cli")
 
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-# This is required by Angular Workspace
 http_archive(
-    name = "bazel_skylib",
-    url = "https://github.com/bazelbuild/bazel-skylib/archive/0.5.0.zip",
-    strip_prefix = "bazel-skylib-0.5.0",
-    sha256 = "ca4e3b8e4da9266c3a9101c8f4704fe2e20eb5625b2a6a7d2d7d45e3dd4efffd",
+    name = "build_bazel_rules_nodejs",
+    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/0.27.7/rules_nodejs-0.27.7.tar.gz"],
+    sha256 = "fb87ed5965cef93188af9a7287511639403f4b0da418961ce6defb9dcf658f51",
 )
-
-# We get Buildifier from here.
-http_archive(
-    name = "com_github_bazelbuild_buildtools",
-    url = "https://github.com/bazelbuild/buildtools/archive/0.15.0.zip",
-    strip_prefix = "buildtools-0.15.0",
-    sha256 = "76d1837a86fa6ef5b4a07438f8489f00bfa1b841e5643b618e01232ba884b1fe",
-)
-
-# Load the TypeScript rules, its dependencies, and setup the workspace.
-http_archive(
-    name = "build_bazel_rules_typescript",
-    url = "https://github.com/bazelbuild/rules_typescript/archive/0.22.1.zip",
-    strip_prefix = "rules_typescript-0.22.1",
-    sha256 = "351abe89b291a3b3d6af38d9d04c6270f5d2ed8781e2fda25bc65fd12db25e66",
-)
-
-load("@build_bazel_rules_typescript//:package.bzl", "rules_typescript_dependencies")
-# build_bazel_rules_nodejs is loaded transitively through rules_typescript_dependencies.
-rules_typescript_dependencies()
-
-load("@com_github_bazelbuild_buildtools//buildifier:deps.bzl", "buildifier_dependencies")
-buildifier_dependencies()
-
-load("@io_bazel_rules_go//go:def.bzl", "go_register_toolchains", "go_rules_dependencies")
-go_rules_dependencies()
-go_register_toolchains()
 
 # TS API Guardian resides in Angular
 http_archive(
     name = "angular",
-    url = "https://github.com/angular/angular/archive/7.2.0.zip",
-    strip_prefix = "angular-7.2.0",
-    sha256 = "8a4915a524f3fed17424da4b77cd7a943fbbddba44275f06671493339713914b",
+    sha256 = "6af15858f480438a9ca3fa8eaf4fdf993ccae878b834f3ea72fa8442f76b73c2",
+    strip_prefix = "angular-7.2.9",
+    url = "https://github.com/angular/angular/archive/7.2.9.zip",
 )
 
-load("@angular//:index.bzl", "ng_setup_workspace")
-ng_setup_workspace()
+# We use protocol buffers for the Build Event Protocol
+git_repository(
+    name = "com_google_protobuf",
+    remote = "https://github.com/protocolbuffers/protobuf",
+    commit = "b6375e03aa80274dae89410efdf46346413b2247",
+)
 
-load("@build_bazel_rules_typescript//:defs.bzl", "ts_setup_workspace")
-ts_setup_workspace()
+load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
+
+protobuf_deps()
 
 load("@build_bazel_rules_nodejs//:defs.bzl", "check_bazel_version", "node_repositories", "yarn_install")
 # 0.18.0 is needed for .bazelignore
@@ -92,9 +69,25 @@ yarn_install(
     ],
 )
 
-http_archive(
-    name = "rxjs",
-    url = "https://registry.yarnpkg.com/rxjs/-/rxjs-6.3.3.tgz",
-    strip_prefix = "package/src",
-    sha256 = "72b0b4e517f43358f554c125e40e39f67688cd2738a8998b4a266981ed32f403",
+load("@npm//:install_bazel_dependencies.bzl", "install_bazel_dependencies")
+install_bazel_dependencies()
+
+load("@npm_bazel_typescript//:defs.bzl", "ts_setup_workspace")
+
+ts_setup_workspace()
+
+# Load karma dependencies
+load("@npm_bazel_karma//:package.bzl", "rules_karma_dependencies")
+
+rules_karma_dependencies()
+
+# Setup the rules_webtesting toolchain
+load("@io_bazel_rules_webtesting//web:repositories.bzl", "web_test_repositories")
+
+web_test_repositories()
+
+yarn_install(
+    name = "ts-api-guardian_deps",
+    package_json = "@angular//tools/ts-api-guardian:package.json",
+    yarn_lock = "@angular//tools/ts-api-guardian:yarn.lock",
 )

@@ -5,7 +5,7 @@ export interface AdditionalPropertiesValidatorError extends SchemaValidatorError
     };
 }
 
-export declare function addUndefinedDefaults(value: JsonValue, _pointer: JsonPointer, schema?: JsonObject): JsonValue;
+export declare function addUndefinedDefaults(value: JsonValue, _pointer: JsonPointer, schema?: JsonSchema): JsonValue;
 
 export declare class AliasHost<StatsT extends object = {}> extends ResolverHost<StatsT> {
     protected _aliases: Map<Path, Path>;
@@ -989,7 +989,7 @@ export declare class UnsupportedPlatformException extends BaseException {
 
 export declare type UriHandler = (uri: string) => Observable<JsonObject> | Promise<JsonObject> | null | undefined;
 
-export declare function visitJson<ContextT>(json: JsonValue, visitor: JsonVisitor, schema?: JsonObject, refResolver?: ReferenceResolver<ContextT>, context?: ContextT): Observable<JsonValue>;
+export declare function visitJson<ContextT>(json: JsonValue, visitor: JsonVisitor, schema?: JsonSchema, refResolver?: ReferenceResolver<ContextT>, context?: ContextT): Observable<JsonValue>;
 
 export declare function visitJsonSchema(schema: JsonSchema, visitor: JsonSchemaVisitor): void;
 
@@ -1004,7 +1004,7 @@ export declare class Workspace {
     readonly newProjectRoot: string | undefined;
     readonly root: Path;
     readonly version: number;
-    constructor(_root: Path, _host: virtualFs.Host<{}>);
+    constructor(_root: Path, _host: virtualFs.Host<{}>, registry?: schema.CoreSchemaRegistry);
     getCli(): WorkspaceTool;
     getDefaultProjectName(): string | null;
     getProject(projectName: string): WorkspaceProject;
@@ -1018,6 +1018,13 @@ export declare class Workspace {
     loadWorkspaceFromHost(workspacePath: Path): Observable<this>;
     loadWorkspaceFromJson(json: {}): Observable<this>;
     validateAgainstSchema<T = {}>(contentJson: {}, schemaJson: JsonObject): Observable<T>;
+    protected static _workspaceFileNames: string[];
+    static findWorkspaceFile(host: virtualFs.Host<{}>, path: Path): Promise<Path | null>;
+    static fromPath(host: virtualFs.Host<{}>, path: Path, registry: schema.CoreSchemaRegistry): Promise<Workspace>;
+}
+
+export declare class WorkspaceFileNotFoundException extends BaseException {
+    constructor(path: Path);
 }
 
 export declare class WorkspaceNotYetLoadedException extends BaseException {

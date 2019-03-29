@@ -4,7 +4,7 @@
 # found in the LICENSE file at https://angular.io/license
 package(default_visibility = ["//visibility:public"])
 
-load("@build_bazel_rules_typescript//:defs.bzl", "ts_library")
+load("@npm_bazel_typescript//:defs.bzl", "ts_library")
 load("@build_bazel_rules_nodejs//:defs.bzl", "jasmine_node_test", "npm_package")
 
 licenses(["notice"])  # MIT License
@@ -21,13 +21,15 @@ ts_library(
             "src/**/*_benchmark.ts",
         ],
     ),
-    data = glob(["**/*.json"]),
+    data = glob(["**/*.json"]) + [
+        "//packages/angular_devkit/core/third_party/github.com/chalk/supports-color",
+    ],
     module_name = "@angular-devkit/core",
     module_root = "src/index.d.ts",
     # strict_checks = False,
     deps = [
-        "@rxjs",
-        "@rxjs//operators",
+        "@npm//rxjs",
+        
         "@npm//@types/node",
         "@npm//@types/source-map",
         "@npm//ajv",
@@ -49,14 +51,14 @@ ts_library(
     deps = [
         ":core",
         ":node",
-        "@rxjs",
-        "@rxjs//operators",
+        "@npm//rxjs",
+        
         "@npm//@types/node",
         "@npm//@types/jasmine",
     ],
     data = [
-        "src/workspace/workspace-schema.json",
-        "src/workspace/test/test-workspace.json"
+        "src/experimental/workspace/workspace-schema.json",
+        "src/experimental/workspace/test/test-workspace.json"
     ],
     testonly = True,
     # @external_begin
@@ -70,7 +72,6 @@ jasmine_node_test(
     deps = [
         "@npm//jasmine",
         "@npm//source-map",
-        "@npm//chokidar",
     ],
 )
 
@@ -92,8 +93,8 @@ ts_library(
     module_root = "node/index.d.ts",
     deps = [
         ":core",
-        "@rxjs",
-        "@rxjs//operators",
+        "@npm//rxjs",
+        
         "@npm//@types/node",
     ],
 )
@@ -110,8 +111,8 @@ ts_library(
         ":core",
         ":node",
         "//tests/angular_devkit/core/node/jobs:jobs_test_lib",
-        "@rxjs",
-        "@rxjs//operators",
+        "@npm//rxjs",
+        
         "@npm//@types/node",
         "@npm//@types/jasmine",
     ],
@@ -152,8 +153,8 @@ ts_library(
     deps = [
         ":core",
         ":node",
-        "@rxjs",
-        "@rxjs//operators",
+        "@npm//rxjs",
+        
         "@npm//@types/node",
         "@npm//@types/jasmine",
     ],

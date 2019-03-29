@@ -15,7 +15,7 @@ import { LoggingCallback, WebpackBuilder } from '@angular-devkit/build-webpack';
 import { Path, getSystemPath, join, normalize, resolve, virtualFs } from '@angular-devkit/core';
 import * as fs from 'fs';
 import { Observable, concat, of, throwError } from 'rxjs';
-import { concatMap, last, tap } from 'rxjs/operators';
+import { concatMap, last } from 'rxjs/operators';
 import * as ts from 'typescript'; // tslint:disable-line:no-implicit-dependencies
 import { WebpackConfigOptions } from '../angular-cli-files/models/build-options';
 import {
@@ -34,8 +34,8 @@ import {
   statsToString,
   statsWarningsToString,
 } from '../angular-cli-files/utilities/stats';
-import { defaultProgress, normalizeBuilderSchema } from '../utils';
-import { BrowserBuilderSchema, NormalizedBrowserBuilderSchema } from './schema';
+import { NormalizedBrowserBuilderSchema, defaultProgress, normalizeBrowserSchema } from '../utils';
+import { Schema as BrowserBuilderSchema } from './schema';
 const SpeedMeasurePlugin = require('speed-measure-webpack-plugin');
 const webpackMerge = require('webpack-merge');
 
@@ -58,10 +58,12 @@ export class BrowserBuilder implements Builder<BrowserBuilderSchema> {
     const webpackBuilder = this.createWebpackBuilder({ ...this.context, host });
     const getLoggingCb = this.createLoggingFactory();
 
-    const options = normalizeBuilderSchema(
+    const options = normalizeBrowserSchema(
       host,
       root,
-      builderConfig,
+      resolve(root, builderConfig.root),
+      builderConfig.sourceRoot,
+      builderConfig.options,
     );
 
     return of(null).pipe(
@@ -76,11 +78,11 @@ export class BrowserBuilder implements Builder<BrowserBuilderSchema> {
           return throwError(e);
         }
 
-        return webpackBuilder.runWebpack(webpackConfig, getLoggingCb(options.verbose));
+        return webpackBuilder.runWebpack(webpackConfig, getLoggingCb(options.verbose || false));
       }),
       concatMap(buildEvent => {
         if (buildEvent.success && !options.watch && options.serviceWorker) {
-          return new Observable(obs => {
+          return new Observable<BuildEvent>(obs => {
             augmentAppWithServiceWorker(
               this.context.host,
               root,
@@ -113,7 +115,7 @@ export class BrowserBuilder implements Builder<BrowserBuilderSchema> {
   ) {
     // Ensure Build Optimizer is only used with AOT.
     if (options.buildOptimizer && !options.aot) {
-      throw new Error('The `--build-optimizer` option cannot be used without `--aot`.');
+      throw new Error(`The 'buildOptimizer' option cannot be used without 'aot'.`);
     }
 
     let wco: WebpackConfigOptions<NormalizedBrowserBuilderSchema>;
@@ -147,14 +149,14 @@ export class BrowserBuilder implements Builder<BrowserBuilderSchema> {
 
     if (wco.buildOptions.main || wco.buildOptions.polyfills) {
       const typescriptConfigPartial = wco.buildOptions.aot
-        ? getAotConfig(wco, host)
-        : getNonAotConfig(wco, host);
+        ? getAotConfig(wco)
+        : getNonAotConfig(wco);
       webpackConfigs.push(typescriptConfigPartial);
     }
 
     const webpackConfig = webpackMerge(webpackConfigs);
 
-    if (options.profile) {
+    if (options.profile || process.env['NG_BUILD_PROFILING']) {
       const smp = new SpeedMeasurePlugin({
         outputFormat: 'json',
         outputTarget: getSystemPath(join(root, 'speed-measure-plugin.json')),

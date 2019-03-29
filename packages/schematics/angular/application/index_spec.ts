@@ -10,7 +10,7 @@ import { SchematicTestRunner, UnitTestTree } from '@angular-devkit/schematics/te
 import { latestVersions } from '../utility/latest-versions';
 import { getFileContent } from '../utility/test';
 import { Schema as WorkspaceOptions } from '../workspace/schema';
-import { Schema as ApplicationOptions } from './schema';
+import { Schema as ApplicationOptions, Style, ViewEncapsulation } from './schema';
 
 // tslint:disable:max-line-length
 describe('Application Schematic', () => {
@@ -116,6 +116,17 @@ describe('Application Schematic', () => {
     expect(content).toMatch(/import { AppComponent } from \'\.\/app\.component\';/);
   });
 
+  it(`should set 'defaultEncapsulation' in main.ts when 'ViewEncapsulation' is provided`, () => {
+    const tree = schematicRunner.runSchematic('application', {
+      ...defaultOptions,
+      viewEncapsulation: ViewEncapsulation.ShadowDom,
+    }, workspaceTree);
+    const path = '/projects/foo/src/main.ts';
+    const content = tree.readContent(path);
+    expect(content).toContain('defaultEncapsulation: ViewEncapsulation.ShadowDom');
+    expect(content).toContain(`import { enableProdMode, ViewEncapsulation } from '@angular/core'`);
+  });
+
   it('should set the right paths in the tsconfig files', () => {
     const tree = schematicRunner.runSchematic('application', defaultOptions, workspaceTree);
     let path = '/projects/foo/tsconfig.app.json';
@@ -135,6 +146,15 @@ describe('Application Schematic', () => {
     expect(content.extends).toMatch('../../tslint.json');
     expect(content.rules['directive-selector'][2]).toMatch('app');
     expect(content.rules['component-selector'][2]).toMatch('app');
+  });
+
+  it('should set the right prefix in the tslint file when provided is kebabed', () => {
+    const options: ApplicationOptions = { ...defaultOptions, prefix: 'foo-bar' };
+    const tree = schematicRunner.runSchematic('application', options, workspaceTree);
+    const path = '/projects/foo/tslint.json';
+    const content = JSON.parse(tree.readContent(path));
+    expect(content.rules['directive-selector'][2]).toMatch('fooBar');
+    expect(content.rules['component-selector'][2]).toMatch('foo-bar');
   });
 
   it('should set the right coverage folder in the karma.json file', () => {
@@ -197,8 +217,8 @@ describe('Application Schematic', () => {
       expect(pkg.devDependencies['typescript']).toEqual(latestVersions.TypeScript);
     });
 
-    it(`should add a postinstall in package.json when 'experimentalIvy'`, () => {
-      const tree = schematicRunner.runSchematic('application', { ...defaultOptions, experimentalIvy: true }, workspaceTree);
+    it(`should add a postinstall in package.json when 'enableIvy'`, () => {
+      const tree = schematicRunner.runSchematic('application', { ...defaultOptions, enableIvy: true }, workspaceTree);
       const pkg = JSON.parse(tree.readContent('/package.json'));
       expect(pkg.scripts.postinstall).toEqual('ivy-ngcc');
     });
@@ -233,10 +253,10 @@ describe('Application Schematic', () => {
       const tree = schematicRunner.runSchematic('application', options, workspaceTree);
       const files = tree.files;
       expect(files).toEqual(jasmine.arrayContaining([
-        '/src/karma.conf.js',
-        '/src/tsconfig.app.json',
-        '/src/tsconfig.spec.json',
-        '/src/tslint.json',
+        '/karma.conf.js',
+        '/tsconfig.app.json',
+        '/tsconfig.spec.json',
+        '/tslint.json',
         '/src/environments/environment.ts',
         '/src/environments/environment.prod.ts',
         '/src/favicon.ico',
@@ -264,36 +284,61 @@ describe('Application Schematic', () => {
       expect(buildOpt.index).toEqual('src/index.html');
       expect(buildOpt.main).toEqual('src/main.ts');
       expect(buildOpt.polyfills).toEqual('src/polyfills.ts');
-      expect(buildOpt.tsConfig).toEqual('src/tsconfig.app.json');
+      expect(buildOpt.tsConfig).toEqual('tsconfig.app.json');
 
       const testOpt = prj.architect.test.options;
       expect(testOpt.main).toEqual('src/test.ts');
-      expect(testOpt.tsConfig).toEqual('src/tsconfig.spec.json');
-      expect(testOpt.karmaConfig).toEqual('src/karma.conf.js');
+      expect(testOpt.tsConfig).toEqual('tsconfig.spec.json');
+      expect(testOpt.karmaConfig).toEqual('karma.conf.js');
       expect(testOpt.styles).toEqual([
         'src/styles.css',
       ]);
     });
 
+    it('should set values in angular.json correctly when using a style preprocessor', () => {
+      const options = { ...defaultOptions, projectRoot: '', style: Style.Sass };
+      const tree = schematicRunner.runSchematic('application', options, workspaceTree);
+      const config = JSON.parse(tree.readContent('/angular.json'));
+      const prj = config.projects.foo;
+      const buildOpt = prj.architect.build.options;
+      expect(buildOpt.styles).toEqual([
+        'src/styles.sass',
+      ]);
+      const testOpt = prj.architect.test.options;
+      expect(testOpt.styles).toEqual([
+        'src/styles.sass',
+      ]);
+      expect(tree.exists('src/styles.sass')).toBe(true);
+    });
+
     it('should set the relative tsconfig paths', () => {
       const options = { ...defaultOptions, projectRoot: '' };
-
       const tree = schematicRunner.runSchematic('application', options, workspaceTree);
-      const appTsConfig = JSON.parse(tree.readContent('/src/tsconfig.app.json'));
-      expect(appTsConfig.extends).toEqual('../tsconfig.json');
-      const specTsConfig = JSON.parse(tree.readContent('/src/tsconfig.spec.json'));
-      expect(specTsConfig.extends).toEqual('../tsconfig.json');
-      expect(specTsConfig.files).toEqual(['test.ts', 'polyfills.ts']);
+      const appTsConfig = JSON.parse(tree.readContent('/tsconfig.app.json'));
+      expect(appTsConfig.extends).toEqual('./tsconfig.json');
+      const specTsConfig = JSON.parse(tree.readContent('/tsconfig.spec.json'));
+      expect(specTsConfig.extends).toEqual('./tsconfig.json');
+      expect(specTsConfig.files).toEqual(['src/test.ts', 'src/polyfills.ts']);
     });
 
     it('should set the relative path and prefix in the tslint file', () => {
       const options = { ...defaultOptions, projectRoot: '' };
 
       const tree = schematicRunner.runSchematic('application', options, workspaceTree);
-      const content = JSON.parse(tree.readContent('/src/tslint.json'));
-      expect(content.extends).toMatch('../tslint.json');
+      const content = JSON.parse(tree.readContent('/tslint.json'));
+      expect(content.extends).toMatch('tslint:recommended');
       expect(content.rules['directive-selector'][2]).toMatch('app');
       expect(content.rules['component-selector'][2]).toMatch('app');
+    });
+
+    it('should merge tslint file', () => {
+      const options = { ...defaultOptions, projectRoot: '' };
+
+      const tree = schematicRunner.runSchematic('application', options, workspaceTree);
+      const content = JSON.parse(tree.readContent('/tslint.json'));
+      expect(content.extends).toMatch('tslint:recommended');
+      expect(content.rules['component-selector'][2]).toMatch('app');
+      expect(content.rules['trailing-comma']).toBeDefined();
     });
   });
 });

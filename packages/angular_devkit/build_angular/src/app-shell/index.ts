@@ -16,9 +16,9 @@ import { Observable, forkJoin, from, merge, of, throwError } from 'rxjs';
 import { concatMap, map, switchMap } from 'rxjs/operators';
 import { requireProjectModule } from '../angular-cli-files/utilities/require-project-module';
 import { augmentAppWithServiceWorker } from '../angular-cli-files/utilities/service-worker';
-import { BrowserBuilderSchema } from '../browser/schema';
-import { BuildWebpackServerSchema } from '../server/schema';
-import { BuildWebpackAppShellSchema } from './schema';
+import { Schema as BrowserBuilderSchema } from '../browser/schema';
+import { Schema as BuildWebpackServerSchema } from '../server/schema';
+import { Schema as BuildWebpackAppShellSchema } from './schema';
 
 
 export class AppShellBuilder implements Builder<BuildWebpackAppShellSchema> {
@@ -163,7 +163,7 @@ export class AppShellBuilder implements Builder<BuildWebpackAppShellSchema> {
         const outputIndexPath = join(root, options.outputIndexPath || browserIndexOutputPath);
 
         // Render to HTML and overwrite the client index file.
-        return from(
+        return from<Promise<BuildEvent>>(
           renderModuleFactory(AppServerModuleNgFactory, {
             document: indexHtml,
             url: options.route,

@@ -1,7 +1,8 @@
 import * as fs from 'fs-extra';
 import { readFile, writeFile, replaceInFile, prependToFile } from './fs';
-import { execAndWaitForOutputToMatch, npm, silentNpm, ng } from './process';
+import { execAndWaitForOutputToMatch, npm, silentNpm, ng, git } from './process';
 import { getGlobalVariable } from './env';
+import { gitCommit } from './git';
 
 const packages = require('../../../../lib/packages').packages;
 
@@ -32,23 +33,96 @@ export function ngServe(...args: string[]) {
 }
 
 
-export function createProject(name: string, ...args: string[]) {
+export async function createProject(name: string, ...args: string[]) {
   const argv: any = getGlobalVariable('argv');
+  const extraArgs = [];
 
-  return Promise.resolve()
-    .then(() => process.chdir(getGlobalVariable('tmp-root')))
-    .then(() => ng('new', name, '--skip-install', ...args))
-    .then(() => process.chdir(name))
-    .then(() => useBuiltPackages())
-    .then(() => useCIChrome('e2e'))
-    .then(() => useCIChrome('src'))
-    .then(() => useDevKitSnapshots())
-    .then(() => argv['ng2'] ? useNg2() : Promise.resolve())
-    .then(() => argv['ng4'] ? useNg4() : Promise.resolve())
-    .then(() => argv['ng-snapshots'] || argv['ng-tag'] ? useSha() : Promise.resolve())
-    .then(() => console.log(`Project ${name} created... Installing npm.`))
-    .then(() => silentNpm('install'))
-    .then(() => useCIDefaults(name));
+  if (argv['ivy']) {
+    extraArgs.push('--enableIvy');
+  }
+
+  process.chdir(getGlobalVariable('tmp-root'));
+  await ng('new', name, '--skip-install', ...extraArgs, ...args);
+  process.chdir(name);
+  await prepareProjectForE2e(name);
+}
+
+export async function prepareProjectForE2e(name) {
+  const argv: string[] = getGlobalVariable(
+    'argv',
+  );
+
+  await git(
+    'config',
+    'user.email',
+    'angular-core+e2e@google.com',
+  );
+  await git(
+    'config',
+    'user.name',
+    'Angular CLI E2e',
+  );
+  await git(
+    'config',
+    'commit.gpgSign',
+    'false',
+  );
+  await useBuiltPackages();
+  await useCIChrome(
+    'e2e',
+  );
+  await useCIChrome(
+    '',
+  );
+
+  // legacy projects
+  await useCIChrome(
+    'src',
+  );
+
+  await useDevKitSnapshots();
+  (await argv[
+    'ng2'
+  ])
+    ? useNg2()
+    : Promise.resolve();
+  (await argv[
+    'ng4'
+  ])
+    ? useNg4()
+    : Promise.resolve();
+  (await argv[
+    'ng-snapshots'
+  ]) ||
+    argv[
+    'ng-tag'
+    ]
+    ? useSha()
+    : Promise.resolve();
+  await console.log(
+    `Project ${name} created... Installing npm.`,
+  );
+  await silentNpm(
+    'install',
+  );
+  await useCIDefaults(
+    name,
+  );
+  // Force sourcemaps to be from the root of the filesystem.
+  await updateJsonFile(
+    'tsconfig.json',
+    json => {
+      json[
+        'compilerOptions'
+      ][
+        'sourceRoot'
+      ] =
+        '/';
+    },
+  );
+  await gitCommit(
+    'prepare-project-for-e2e',
+  );
 }
 
 
@@ -59,21 +133,21 @@ export function useDevKit(devkitRoot: string) {
       const devkitPackages = require(devkitRoot + '/lib/packages').packages;
 
       return updateJsonFile('package.json', json => {
-          if (!json['dependencies']) {
-            json['dependencies'] = {};
-          }
-          if (!json['devDependencies']) {
-            json['devDependencies'] = {};
-          }
+        if (!json['dependencies']) {
+          json['dependencies'] = {};
+        }
+        if (!json['devDependencies']) {
+          json['devDependencies'] = {};
+        }
 
-          for (const packageName of Object.keys(devkitPackages)) {
-            if (json['dependencies'].hasOwnProperty(packageName)) {
-              json['dependencies'][packageName] = devkitPackages[packageName].tar;
-            } else if (json['devDependencies'].hasOwnProperty(packageName)) {
-              json['devDependencies'][packageName] = devkitPackages[packageName].tar;
-            }
+        for (const packageName of Object.keys(devkitPackages)) {
+          if (json['dependencies'].hasOwnProperty(packageName)) {
+            json['dependencies'][packageName] = devkitPackages[packageName].tar;
+          } else if (json['devDependencies'].hasOwnProperty(packageName)) {
+            json['devDependencies'][packageName] = devkitPackages[packageName].tar;
           }
-        });
+        }
+      });
     });
 }
 
@@ -100,7 +174,8 @@ export function useBuiltPackages() {
       }
 
       for (const packageName of Object.keys(packages)) {
-        if (json['dependencies'].hasOwnProperty(packageName)) {
+        if (json['dependencies'].hasOwnProperty(packageName)
+        ) {
           json['dependencies'][packageName] = packages[packageName].tar;
         } else if (json['devDependencies'].hasOwnProperty(packageName)) {
           json['devDependencies'][packageName] = packages[packageName].tar;
@@ -116,31 +191,40 @@ export function useSha() {
     // 7.0.0-beta.4+dd2a650
     // 6.1.6+4a8d56a
     const label = argv['ng-tag'] ? argv['ng-tag'] : '';
+    const ngSnapshotVersions = require('../ng-snapshot/package.json');
     return updateJsonFile('package.json', json => {
       // Install over the project with snapshot builds.
-      Object.keys(json['dependencies'] || {})
-        .filter(name => name.match(/^@angular\//))
-        .forEach(name => {
-          const pkgName = name.split(/\//)[1];
-          if (pkgName == 'cli') {
-            return;
-          }
-          json['dependencies'][`@angular/${pkgName}`]
-            = `github:angular/${pkgName}-builds${label}`;
-        });
-
-      Object.keys(json['devDependencies'] || {})
-        .filter(name => name.match(/^@angular\//))
-        .forEach(name => {
-          const pkgName = name.split(/\//)[1];
-          if (pkgName == 'cli') {
-            return;
-          }
-          json['devDependencies'][`@angular/${pkgName}`]
-            = `github:angular/${pkgName}-builds${label}`;
-        });
-
-      json['devDependencies']['typescript'] = '~3.1.1';
+      function replaceDependencies(key: string) {
+        const missingSnapshots = [];
+        Object.keys(json[key] || {})
+          .filter(name => name.match(/^@angular\//))
+          .forEach(name => {
+            const pkgName = name.split(/\//)[1];
+            if (pkgName == 'cli') {
+              return;
+            }
+            if (label) {
+              json[key][`@angular/${pkgName}`]
+                = `github:angular/${pkgName}-builds${label}`;
+            } else {
+              const replacement = ngSnapshotVersions.dependencies[`@angular/${pkgName}`];
+              if (!replacement) {
+                missingSnapshots.push(`missing @angular/${pkgName}`);
+              }
+              json[key][`@angular/${pkgName}`] = replacement;
+            }
+          });
+        if (missingSnapshots.length > 0) {
+          throw new Error('e2e test with --ng-snapshots requires all angular packages be ' +
+            'listed in tests/legacy-cli/e2e/ng-snapshot/package.json.\nErrors:\n' + missingSnapshots.join('\n  '));
+        }
+      }
+      try {
+        replaceDependencies('dependencies');
+        replaceDependencies('devDependencies');
+      } catch (e) {
+        return Promise.reject(e);
+      }
     });
   } else {
     return Promise.resolve();
@@ -190,22 +274,30 @@ export function useCIDefaults(projectName = 'test-project') {
     // Use the CI chrome setup in karma.
     appTargets.test.options.browsers = 'ChromeHeadlessCI';
     // Disable auto-updating webdriver in e2e.
-    const e2eProject = workspaceJson.projects[projectName + '-e2e'];
-    const e2eTargets = e2eProject.targets || e2eProject.architect;
-    e2eTargets.e2e.options.webdriverUpdate = false;
-  })
-  .then(() => updateJsonFile('package.json', json => {
-    // Use matching versions of Chrome and Webdriver.
-    json['scripts']['webdriver-update'] = 'webdriver-manager update' +
-      ` --standalone false --gecko false --versions.chrome 2.45`; // Supports Chrome v70-72
+    if (appTargets.e2e) {
+      appTargets.e2e.options.webdriverUpdate = false;
+    }
 
-  }))
-  .then(() => npm('run', 'webdriver-update'));
+    // legacy project structure
+    const e2eProject = workspaceJson.projects[projectName + '-e2e'];
+    if (e2eProject) {
+      const e2eTargets = e2eProject.targets || e2eProject.architect;
+      e2eTargets.e2e.options.webdriverUpdate = false;
+    }
+  })
+    .then(() => updateJsonFile('package.json', json => {
+      // Use matching versions of Chrome and Webdriver.
+      json['scripts']['webdriver-update'] = 'webdriver-manager update' +
+        ` --standalone false --gecko false --versions.chrome 2.45`; // Supports Chrome v70-72
+
+    }))
+    .then(() => npm('run', 'webdriver-update'));
 }
 
 export function useCIChrome(projectDir: string) {
-  const protractorConf = `${projectDir}/protractor.conf.js`;
-  const karmaConf = `${projectDir}/karma.conf.js`;
+  const dir = projectDir ? projectDir + '/' : '';
+  const protractorConf = `${dir}protractor.conf.js`;
+  const karmaConf = `${dir}karma.conf.js`;
 
   return Promise.resolve()
     .then(() => updateJsonFile('package.json', json => {
@@ -214,7 +306,7 @@ export function useCIChrome(projectDir: string) {
       json['devDependencies']['karma-chrome-launcher'] = '~2.2.0'; // Minimum for ChromeHeadless.
     }))
     // Use Pupeteer in protractor if a config is found on the project.
-    .then(() =>  {
+    .then(() => {
       if (fs.existsSync(protractorConf)) {
         return replaceInFile(protractorConf,
           `'browserName': 'chrome'`,
@@ -227,13 +319,13 @@ export function useCIChrome(projectDir: string) {
       }
     })
     // Use Pupeteer in karma if a config is found on the project.
-    .then(() =>  {
+    .then(() => {
       if (fs.existsSync(karmaConf)) {
         return prependToFile(karmaConf,
           `process.env.CHROME_BIN = require('puppeteer').executablePath();`)
-        .then(() => replaceInFile(karmaConf,
-          `browsers: ['Chrome']`,
-          `browsers: ['Chrome'],
+          .then(() => replaceInFile(karmaConf,
+            `browsers: ['Chrome']`,
+            `browsers: ['Chrome'],
           customLaunchers: {
             ChromeHeadlessCI: {
               base: 'ChromeHeadless',

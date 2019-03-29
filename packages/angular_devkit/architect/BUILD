@@ -5,10 +5,53 @@
 
 licenses(["notice"])  # MIT
 
-load("@build_bazel_rules_typescript//:defs.bzl", "ts_library")
+load("@npm_bazel_typescript//:defs.bzl", "ts_library")
 load("@build_bazel_rules_nodejs//:defs.bzl", "npm_package")
+load("//tools:ts_json_schema.bzl", "ts_json_schema")
 
 package(default_visibility = ["//visibility:public"])
+
+ts_json_schema(
+    name = "builder_input_schema",
+    src = "src/input-schema.json",
+)
+ts_json_schema(
+    name = "builder_output_schema",
+    src = "src/output-schema.json",
+)
+ts_json_schema(
+    name = "builder_builders_schema",
+    src = "src/builders-schema.json",
+)
+ts_json_schema(
+    name = "progress_schema",
+    src = "src/progress-schema.json",
+)
+
+ts_library(
+    name = "node",
+    srcs = glob(
+        include = ["node/**/*.ts"],
+        exclude = [
+            "**/*_spec.ts",
+            "**/*_spec_large.ts",
+        ],
+    ),
+    module_name = "@angular-devkit/architect/node",
+    module_root = "node/index.d.ts",
+    # strict_checks = False,
+    deps = [
+        "//packages/angular_devkit/core",
+        "//packages/angular_devkit/core:node",
+        "@npm//rxjs",
+        
+        "@npm//@types/node",
+        ":architect",
+        ":builder_builders_schema",
+        ":builder_input_schema",
+        ":builder_output_schema",
+    ],
+)
 
 ts_library(
     name = "architect",
@@ -26,9 +69,12 @@ ts_library(
     deps = [
         "//packages/angular_devkit/core",
         "//packages/angular_devkit/core:node",
-        "@rxjs",
-        "@rxjs//operators",
+        "@npm//rxjs",
+        
         "@npm//@types/node",
+        ":builder_input_schema",
+        ":builder_output_schema",
+        ":progress_schema",
     ],
 )
 
@@ -47,8 +93,8 @@ ts_library(
         ":architect",
         "//packages/angular_devkit/core",
         "//packages/angular_devkit/core:node",
-        "@rxjs",
-        "@rxjs//operators",
+        "@npm//rxjs",
+        
         "@npm//@types/node",
     ],
 )

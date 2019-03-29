@@ -347,10 +347,6 @@ export class CoreSchemaRegistry implements SchemaRegistry {
             // tslint:disable-next-line:no-any https://github.com/ReactiveX/rxjs/issues/3989
             result = (result as any).pipe(
               ...[...this._pre].map(visitor => concatMap((data: JsonValue) => {
-                if (schema === false || schema === true) {
-                  return of(data);
-                }
-
                 return visitJson(data, visitor, schema, this._resolver, validate);
               })),
             );
@@ -418,10 +414,6 @@ export class CoreSchemaRegistry implements SchemaRegistry {
                   // tslint:disable-next-line:no-any https://github.com/ReactiveX/rxjs/issues/3989
                   result = (result as any).pipe(
                     ...[...this._post].map(visitor => concatMap((data: JsonValue) => {
-                      if (schema === false || schema === true) {
-                        return of(schema);
-                      }
-
                       return visitJson(data, visitor, schema, this._resolver, validate);
                     })),
                   );
@@ -728,7 +720,7 @@ export class CoreSchemaRegistry implements SchemaRegistry {
     // tslint:disable-next-line:no-any https://github.com/ReactiveX/rxjs/issues/3989
     return (of(data) as any).pipe(
       ...[...smartDefaults.entries()].map(([pointer, schema]) => {
-        return concatMap<T, T>(data => {
+        return concatMap(data => {
           const fragments = JSON.parse(pointer);
           const source = this._sourceMap.get((schema as JsonObject).$source as string);
 

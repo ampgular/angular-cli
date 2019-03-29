@@ -314,7 +314,7 @@ export class WebpackCompilerHost implements ts.CompilerHost {
   }
 
   getCurrentDirectory(): string {
-    return this._basePath;
+    return workaroundResolve(this._basePath);
   }
 
   getCanonicalFileName(fileName: string): string {
@@ -336,7 +336,8 @@ export class WebpackCompilerHost implements ts.CompilerHost {
   }
 
   readResource(fileName: string) {
-    if (this.directTemplateLoading && fileName.endsWith('.html')) {
+    if (this.directTemplateLoading &&
+        (fileName.endsWith('.html') || fileName.endsWith('.svg'))) {
       return this.readFile(fileName);
     }
 

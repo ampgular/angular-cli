@@ -15,7 +15,22 @@
 
 export * from './app-shell';
 export * from './browser';
-export * from './browser/schema';
+export {
+  AssetPattern,
+  AssetPatternClass as AssetPatternObject,
+  Budget,
+  ExtraEntryPoint,
+  ExtraEntryPointClass as ExtraEntryPointObject,
+  FileReplacement,
+  OptimizationClass as OptimizationObject,
+  OptimizationUnion,
+  OutputHashing,
+  Schema as BrowserBuilderSchema,
+  SourceMapClass as SourceMapObject,
+  SourceMapUnion,
+  StylePreprocessorOptions,
+  Type,
+} from './browser/schema';
 export * from './dev-server';
 export * from './extract-i18n';
 export * from './karma';
